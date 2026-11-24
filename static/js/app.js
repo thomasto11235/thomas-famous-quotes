@@ -1,6 +1,6 @@
 /**
  * Echoes of Wisdom — Random Quote Web Application
- * Vanilla JavaScript (ES6+)
+ * Vanilla JavaScript (ES6+) with Advanced UX Enhancements
  */
 
 (() => {
@@ -57,6 +57,10 @@
   // --- State ---
   const state = {
     currentQuote: null,
+    history: [],         // Array of quotes viewed in this session
+    historyIndex: -1,    // Pointer to current quote in history
+    favorites: new Set(),// Set of quote IDs saved as favorites
+    isFavoritesOnly: false,
     filters: {
       author: '',
       category: '',
@@ -75,6 +79,10 @@
     // Header
     statsText: document.getElementById('stats-text'),
     themeToggleSwitch: document.getElementById('theme-toggle-switch'),
+    openShortcutsBtn: document.getElementById('open-shortcuts-btn'),
+    shortcutsModal: document.getElementById('shortcuts-modal'),
+    closeShortcutsBtn: document.getElementById('close-shortcuts-btn'),
+    dialogGotItBtn: document.getElementById('dialog-got-it-btn'),
 
     // Inputs & Filters
     authorInput: document.getElementById('author-input'),
@@ -82,6 +90,8 @@
     clearAuthorBtn: document.getElementById('clear-author-btn'),
     categorySelect: document.getElementById('category-select'),
     categoryChips: document.getElementById('category-chips'),
+    favoritesChip: document.getElementById('favorites-chip'),
+    favCountBadge: document.getElementById('fav-count-badge'),
     keywordInput: document.getElementById('keyword-input'),
     clearKeywordBtn: document.getElementById('clear-keyword-btn'),
     filterCountInfo: document.getElementById('filter-count-info'),
@@ -96,10 +106,15 @@
     quoteAuthor: document.getElementById('quote-author'),
     quoteContext: document.getElementById('quote-context'),
     authorAvatar: document.getElementById('author-avatar'),
+    authorAvatarBtn: document.getElementById('author-avatar-btn'),
+    authorNameBtn: document.getElementById('author-name-btn'),
 
     // Quote Actions
+    prevQuoteBtn: document.getElementById('prev-quote-btn'),
     randomQuoteBtn: document.getElementById('random-quote-btn'),
     randomBtnLabel: document.getElementById('random-btn-label'),
+    favoriteBtn: document.getElementById('favorite-btn'),
+    favoriteText: document.getElementById('favorite-text'),
     speakBtn: document.getElementById('speak-btn'),
     copyBtn: document.getElementById('copy-btn'),
     copyText: document.getElementById('copy-text'),
@@ -120,7 +135,6 @@
     const targetVars = isDark ? themeVariables.dark : themeVariables.light;
     const rootStyle = document.documentElement.style;
 
-    // Overriding CSS root variables directly on :root / documentElement
     for (const [property, value] of Object.entries(targetVars)) {
       rootStyle.setProperty(property, value);
     }
@@ -153,12 +167,10 @@
 
     if (el.themeToggleSwitch) {
       el.themeToggleSwitch.addEventListener('change', (e) => {
-        const nextTheme = e.target.checked ? 'dark' : 'light';
-        applyTheme(nextTheme);
+        applyTheme(e.target.checked ? 'dark' : 'light');
       });
     }
 
-    // Handle OS preference changes if user hasn't explicitly set a preference
     if (window.matchMedia) {
       window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
         if (!localStorage.getItem('quote_theme')) {
@@ -166,6 +178,58 @@
         }
       });
     }
+  }
+
+  // --- Favorites Management (Local Storage) ---
+  function loadFavorites() {
+    try {
+      const stored = localStorage.getItem('quote_favorites');
+      if (stored) {
+        state.favorites = new Set(JSON.parse(stored));
+      }
+    } catch (e) {
+      state.favorites = new Set();
+    }
+    updateFavoritesBadge();
+  }
+
+  function saveFavorites() {
+    try {
+      localStorage.setItem('quote_favorites', JSON.stringify(Array.from(state.favorites)));
+    } catch (e) {
+      console.error('Failed to save favorites:', e);
+    }
+    updateFavoritesBadge();
+  }
+
+  function updateFavoritesBadge() {
+    if (el.favCountBadge) {
+      el.favCountBadge.textContent = `(${state.favorites.size})`;
+    }
+  }
+
+  function toggleCurrentFavorite() {
+    if (!state.currentQuote) return;
+    const qid = state.currentQuote.id;
+    if (state.favorites.has(qid)) {
+      state.favorites.delete(qid);
+    } else {
+      state.favorites.add(qid);
+    }
+    saveFavorites();
+    updateFavoriteButtonUI();
+
+    if (state.isFavoritesOnly) {
+      onFilterChanged();
+    }
+  }
+
+  function updateFavoriteButtonUI() {
+    if (!state.currentQuote || !el.favoriteBtn) return;
+    const isFav = state.favorites.has(state.currentQuote.id);
+    el.favoriteBtn.classList.toggle('favorited', isFav);
+    el.favoriteText.textContent = isFav ? 'Favorited' : 'Favorite';
+    el.favoriteBtn.title = isFav ? 'Remove from favorites (F)' : 'Save to favorites (F)';
   }
 
   // --- API Helpers ---
@@ -188,33 +252,30 @@
 
   // --- Data Initialization ---
   async function initData() {
-    // 1. Fetch Stats
+    loadFavorites();
+
     const statsData = await fetchJSON('/api/stats');
     if (statsData && statsData.success) {
       state.stats = statsData;
       el.statsText.textContent = `${statsData.total_quotes} Quotes • ${statsData.total_categories} Categories • ${statsData.total_authors} Authors`;
     }
 
-    // 2. Fetch Categories
     const catData = await fetchJSON('/api/categories');
     if (catData && catData.success) {
       state.categories = catData.categories;
       populateCategories(catData.categories);
     }
 
-    // 3. Fetch Authors
     const authorData = await fetchJSON('/api/authors');
     if (authorData && authorData.success) {
       state.authors = authorData.authors;
       populateAuthors(authorData.authors);
     }
 
-    // 4. Load Initial Random Quote
     await getRandomQuote();
   }
 
   function populateCategories(categories) {
-    // Select options
     categories.forEach(cat => {
       const opt = document.createElement('option');
       opt.value = cat.name;
@@ -222,7 +283,6 @@
       el.categorySelect.appendChild(opt);
     });
 
-    // Quick chips
     categories.forEach(cat => {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -245,10 +305,61 @@
     });
   }
 
+  // --- Quote History Navigation (Previous / Next) ---
+  function updateNavButtons() {
+    if (el.prevQuoteBtn) {
+      el.prevQuoteBtn.disabled = (state.historyIndex <= 0);
+    }
+  }
+
+  function goPrevQuote() {
+    if (state.historyIndex > 0) {
+      state.historyIndex--;
+      const prevQuote = state.history[state.historyIndex];
+      state.currentQuote = prevQuote;
+      displayQuote(prevQuote);
+      updateNavButtons();
+      updateFavoriteButtonUI();
+    }
+  }
+
   // --- Random Quote Generation ---
   async function getRandomQuote() {
     el.randomQuoteBtn.classList.add('spinning');
     el.randomBtnLabel.textContent = 'Seeking Wisdom...';
+
+    // If favorites mode is on
+    if (state.isFavoritesOnly) {
+      setTimeout(() => {
+        el.randomQuoteBtn.classList.remove('spinning');
+        updateRandomButtonLabel();
+      }, 350);
+
+      const favArray = Array.from(state.favorites);
+      if (favArray.length === 0) {
+        displayNoQuoteFound('No favorites saved yet! Click the heart on any quote to add it to your favorites.');
+        updateFilterStatus(0);
+        return;
+      }
+
+      // Fetch all quotes to filter favorites
+      const allData = await fetchJSON('/api/quotes');
+      if (allData && allData.quotes) {
+        const favQuotes = allData.quotes.filter(q => state.favorites.has(q.id));
+        const filteredFavs = filterQuotesLocally(favQuotes);
+        if (filteredFavs.length > 0) {
+          const pool = (filteredFavs.length > 1 && state.currentQuote) 
+            ? filteredFavs.filter(q => q.id !== state.currentQuote.id)
+            : filteredFavs;
+          const selected = pool[Math.floor(Math.random() * pool.length)];
+          handleNewQuoteSelected(selected, filteredFavs.length);
+        } else {
+          displayNoQuoteFound('No favorite quotes match your current search criteria.');
+          updateFilterStatus(0);
+        }
+      }
+      return;
+    }
 
     const params = new URLSearchParams();
     if (state.filters.category) params.set('category', state.filters.category);
@@ -262,23 +373,59 @@
 
     setTimeout(() => {
       el.randomQuoteBtn.classList.remove('spinning');
-      el.randomBtnLabel.textContent = 'New Random Quote';
-    }, 400);
+      updateRandomButtonLabel();
+    }, 350);
 
     if (data && data.success && data.quote) {
-      state.currentQuote = data.quote;
-      state.matchingCount = data.matching_count;
-      displayQuote(data.quote);
-      updateFilterStatus();
+      handleNewQuoteSelected(data.quote, data.matching_count);
     } else {
       displayNoQuoteFound();
       updateFilterStatus(0);
     }
 
-    // If browse section is open, refresh it as well
     if (state.isBrowseOpen) {
       loadBrowseQuotes();
     }
+  }
+
+  function handleNewQuoteSelected(quote, matchingCount) {
+    state.currentQuote = quote;
+    state.matchingCount = matchingCount;
+
+    // Push into session history
+    state.history.push(quote);
+    state.historyIndex = state.history.length - 1;
+
+    displayQuote(quote);
+    updateFilterStatus();
+    updateNavButtons();
+    updateFavoriteButtonUI();
+    updateRandomButtonLabel();
+  }
+
+  function updateRandomButtonLabel() {
+    if (state.matchingCount > 0 && state.matchingCount < 100) {
+      el.randomBtnLabel.textContent = `Roll from ${state.matchingCount} Quotes`;
+    } else {
+      el.randomBtnLabel.textContent = 'New Random Quote';
+    }
+  }
+
+  function filterQuotesLocally(quotes) {
+    return quotes.filter(q => {
+      if (state.filters.category && q.category.toLowerCase() !== state.filters.category.toLowerCase()) {
+        return false;
+      }
+      if (state.filters.author && !q.author.toLowerCase().includes(state.filters.author.toLowerCase())) {
+        return false;
+      }
+      if (state.filters.keyword) {
+        const kw = state.filters.keyword.toLowerCase();
+        const combined = `${q.quote} ${q.author} ${q.category}`.toLowerCase();
+        if (!combined.includes(kw)) return false;
+      }
+      return true;
+    });
   }
 
   function displayQuote(quote) {
@@ -286,10 +433,14 @@
 
     setTimeout(() => {
       el.quoteNumber.textContent = `Quote #${quote.id} of 100`;
+
+      // Apply category text and accent class
       el.quoteCategory.textContent = quote.category;
+      applyCategoryStyle(el.quoteCategory, quote.category);
+
       el.quoteText.textContent = quote.quote;
       el.quoteAuthor.textContent = quote.author;
-      el.quoteContext.textContent = `${quote.category} Perspective`;
+      el.quoteContext.textContent = `Click to filter by ${quote.author}`;
 
       const initials = quote.author
         .split(' ')
@@ -299,28 +450,46 @@
         .join('');
       el.authorAvatar.textContent = initials || 'Q';
 
+      updateFavoriteButtonUI();
+
       el.quoteText.classList.remove('fade-out');
       el.quoteText.classList.add('fade-in');
 
       setTimeout(() => {
         el.quoteText.classList.remove('fade-in');
-      }, 300);
-    }, 180);
+      }, 250);
+    }, 160);
   }
 
-  function displayNoQuoteFound() {
+  function applyCategoryStyle(element, category) {
+    // Remove existing cat-* classes
+    element.className = element.className.replace(/\bcat-\w+/g, '').trim();
+    const catClass = `cat-${category.toLowerCase().replace(/\s+/g, '-')}`;
+    element.classList.add('cat-themed', catClass);
+  }
+
+  function displayNoQuoteFound(customMsg) {
     el.quoteNumber.textContent = 'Quote #—';
     el.quoteCategory.textContent = 'No Matches';
-    el.quoteText.textContent = 'No quotes found matching your current search or category filters. Try resetting filters!';
+    el.quoteCategory.className = 'quote-category-badge';
+    el.quoteText.textContent = customMsg || 'No quotes found matching your current search or category filters. Click "Reset Filters" to return to all 100 quotes!';
     el.quoteAuthor.textContent = '—';
-    el.quoteContext.textContent = 'Please adjust filters';
+    el.quoteContext.textContent = 'Try adjusting or clearing filters';
     el.authorAvatar.textContent = '?';
+    updateFavoriteButtonUI();
   }
 
   // --- Filtering & Search ---
   function selectCategory(categoryName) {
-    state.filters.category = categoryName;
-    el.categorySelect.value = categoryName;
+    state.isFavoritesOnly = (categoryName === 'favorites');
+
+    if (state.isFavoritesOnly) {
+      state.filters.category = '';
+      el.categorySelect.value = '';
+    } else {
+      state.filters.category = categoryName;
+      el.categorySelect.value = categoryName;
+    }
 
     const chips = el.categoryChips.querySelectorAll('.chip');
     chips.forEach(chip => {
@@ -332,6 +501,13 @@
     });
 
     onFilterChanged();
+  }
+
+  function filterByAuthor(authorName) {
+    state.filters.author = authorName;
+    el.authorInput.value = authorName;
+    onFilterChanged();
+    el.quoteCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   function debounce(fn, ms = 300) {
@@ -355,18 +531,19 @@
     el.clearAuthorBtn.classList.toggle('hidden', !state.filters.author);
     el.clearKeywordBtn.classList.toggle('hidden', !state.filters.keyword);
 
-    const hasAnyFilter = Boolean(state.filters.author || state.filters.category || state.filters.keyword);
+    const hasAnyFilter = Boolean(state.filters.author || state.filters.category || state.filters.keyword || state.isFavoritesOnly);
     el.resetFiltersBtn.classList.toggle('hidden', !hasAnyFilter);
   }
 
   function updateFilterStatus(overrideCount) {
     const count = overrideCount !== undefined ? overrideCount : state.matchingCount;
-    const hasAnyFilter = Boolean(state.filters.author || state.filters.category || state.filters.keyword);
+    const hasAnyFilter = Boolean(state.filters.author || state.filters.category || state.filters.keyword || state.isFavoritesOnly);
 
     if (!hasAnyFilter) {
       el.filterCountInfo.textContent = `Showing random from all 100 quotes`;
     } else {
       const parts = [];
+      if (state.isFavoritesOnly) parts.push(`❤️ Favorites only`);
       if (state.filters.category) parts.push(`Category: "${state.filters.category}"`);
       if (state.filters.author) parts.push(`Author: "${state.filters.author}"`);
       if (state.filters.keyword) parts.push(`Keyword: "${state.filters.keyword}"`);
@@ -375,12 +552,14 @@
     }
 
     el.browseToggleLabel.textContent = `Browse All Matching Quotes (${count})`;
+    updateRandomButtonLabel();
   }
 
   function resetAllFilters() {
     state.filters.author = '';
     state.filters.category = '';
     state.filters.keyword = '';
+    state.isFavoritesOnly = false;
 
     el.authorInput.value = '';
     el.categorySelect.value = '';
@@ -402,28 +581,58 @@
 
     el.browseGrid.innerHTML = '<p style="padding:1rem;color:var(--text-muted);">Loading quotes...</p>';
 
+    let quotesToRender = [];
     const data = await fetchJSON(`/api/quotes?${params.toString()}`);
-    if (data && data.success && data.quotes && data.quotes.length > 0) {
+
+    if (data && data.success && data.quotes) {
+      quotesToRender = state.isFavoritesOnly
+        ? data.quotes.filter(q => state.favorites.has(q.id))
+        : data.quotes;
+    }
+
+    if (quotesToRender.length > 0) {
       el.browseGrid.innerHTML = '';
-      data.quotes.forEach(q => {
+      quotesToRender.forEach(q => {
         const item = document.createElement('div');
         item.className = 'mini-quote-card';
         if (state.currentQuote && state.currentQuote.id === q.id) {
           item.classList.add('active');
         }
 
-        // Inner HTML: Text, Author, Category
+        const isFav = state.favorites.has(q.id);
+
         item.innerHTML = `
           <p class="mini-quote-text">"${escapeHTML(q.quote)}"</p>
           <div class="mini-quote-footer">
             <span class="mini-quote-author" title="${escapeHTML(q.author)}">${escapeHTML(q.author)}</span>
             <div class="mini-quote-actions">
-              <span class="mini-quote-tag">${escapeHTML(q.category)}</span>
+              <span class="mini-quote-tag cat-themed cat-${q.category.toLowerCase().replace(/\s+/g, '-')}">${escapeHTML(q.category)}</span>
+              <button type="button" class="mini-fav-btn ${isFav ? 'favorited' : ''}" title="${isFav ? 'Unfavorite' : 'Favorite'}" aria-label="Favorite quote">
+                ${isFav ? '❤️' : '🤍'}
+              </button>
             </div>
           </div>
         `;
 
-        // "Copy to Clipboard" button on EACH quote in the grid
+        // Mini Favorite Button Listener
+        const miniFavBtn = item.querySelector('.mini-fav-btn');
+        miniFavBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (state.favorites.has(q.id)) {
+            state.favorites.delete(q.id);
+            miniFavBtn.classList.remove('favorited');
+            miniFavBtn.textContent = '🤍';
+          } else {
+            state.favorites.add(q.id);
+            miniFavBtn.classList.add('favorited');
+            miniFavBtn.textContent = '❤️';
+          }
+          saveFavorites();
+          updateFavoriteButtonUI();
+          if (state.isFavoritesOnly) loadBrowseQuotes();
+        });
+
+        // Mini Copy Button
         const miniCopyBtn = document.createElement('button');
         miniCopyBtn.type = 'button';
         miniCopyBtn.className = 'mini-copy-btn';
@@ -438,7 +647,7 @@
         `;
 
         miniCopyBtn.addEventListener('click', async (e) => {
-          e.stopPropagation(); // Don't trigger the card selection
+          e.stopPropagation();
           const textToCopy = `"${q.quote}" — ${q.author}`;
           await copyTextToClipboard(textToCopy);
 
@@ -462,16 +671,18 @@
           }, 2000);
         });
 
-        // Append copy button into mini-quote-actions
         const actionsContainer = item.querySelector('.mini-quote-actions');
         if (actionsContainer) {
           actionsContainer.appendChild(miniCopyBtn);
         }
 
-        // Clicking card selects quote as hero quote
         item.addEventListener('click', () => {
           state.currentQuote = q;
+          state.history.push(q);
+          state.historyIndex = state.history.length - 1;
           displayQuote(q);
+          updateNavButtons();
+          updateFavoriteButtonUI();
           el.browseGrid.querySelectorAll('.mini-quote-card').forEach(c => c.classList.remove('active'));
           item.classList.add('active');
           el.quoteCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -480,7 +691,7 @@
         el.browseGrid.appendChild(item);
       });
     } else {
-      el.browseGrid.innerHTML = '<p style="padding:1rem;color:var(--text-muted);">No matching quotes found.</p>';
+      el.browseGrid.innerHTML = '<p style="padding:1.5rem;text-align:center;color:var(--text-muted);">No matching quotes found.</p>';
     }
   }
 
@@ -547,7 +758,6 @@
 
     const exportUrl = `/api/quotes/export?${params.toString()}`;
 
-    // Trigger download
     const link = document.createElement('a');
     link.href = exportUrl;
     link.setAttribute('download', '');
@@ -601,6 +811,15 @@
     window.speechSynthesis.speak(utterance);
   }
 
+  function toggleShortcutsModal() {
+    if (!el.shortcutsModal) return;
+    if (el.shortcutsModal.open) {
+      el.shortcutsModal.close();
+    } else {
+      el.shortcutsModal.showModal();
+    }
+  }
+
   function escapeHTML(str) {
     if (!str) return '';
     return str
@@ -613,10 +832,38 @@
 
   // --- Event Listeners Setup ---
   function setupEventListeners() {
-    // 1. Random Quote Button
+    // 1. Navigation Buttons (Prev & Next)
     el.randomQuoteBtn.addEventListener('click', getRandomQuote);
+    if (el.prevQuoteBtn) {
+      el.prevQuoteBtn.addEventListener('click', goPrevQuote);
+    }
 
-    // 2. Author Input
+    // 2. Interactive Author & Category Clickables on Quote Card
+    if (el.quoteCategory) {
+      el.quoteCategory.addEventListener('click', () => {
+        if (state.currentQuote && state.currentQuote.category) {
+          selectCategory(state.currentQuote.category);
+        }
+      });
+    }
+
+    if (el.authorNameBtn) {
+      el.authorNameBtn.addEventListener('click', () => {
+        if (state.currentQuote && state.currentQuote.author) {
+          filterByAuthor(state.currentQuote.author);
+        }
+      });
+    }
+
+    if (el.authorAvatarBtn) {
+      el.authorAvatarBtn.addEventListener('click', () => {
+        if (state.currentQuote && state.currentQuote.author) {
+          filterByAuthor(state.currentQuote.author);
+        }
+      });
+    }
+
+    // 3. Author Input
     el.authorInput.addEventListener('input', (e) => {
       state.filters.author = e.target.value.trim();
       debouncedFilter();
@@ -628,18 +875,22 @@
       onFilterChanged();
     });
 
-    // 3. Category Select
+    // 4. Category Select
     el.categorySelect.addEventListener('change', (e) => {
       selectCategory(e.target.value);
     });
 
-    // Quick chips "All" button
+    // Quick chips "All" & "Favorites" button
     const allChip = el.categoryChips.querySelector('.chip[data-category=""]');
     if (allChip) {
       allChip.addEventListener('click', () => selectCategory(''));
     }
 
-    // 4. Keyword Input
+    if (el.favoritesChip) {
+      el.favoritesChip.addEventListener('click', () => selectCategory('favorites'));
+    }
+
+    // 5. Keyword Input
     el.keywordInput.addEventListener('input', (e) => {
       state.filters.keyword = e.target.value.trim();
       debouncedFilter();
@@ -651,28 +902,74 @@
       onFilterChanged();
     });
 
-    // 5. Export to CSV & Reset Filters
+    // 6. Export to CSV & Reset Filters
     if (el.exportCsvBtn) {
       el.exportCsvBtn.addEventListener('click', exportQuotesToCSV);
     }
     el.resetFiltersBtn.addEventListener('click', resetAllFilters);
 
-    // 6. Hero Quote Action buttons
+    // 7. Hero Quote Action buttons
+    if (el.favoriteBtn) {
+      el.favoriteBtn.addEventListener('click', toggleCurrentFavorite);
+    }
     el.copyBtn.addEventListener('click', copyHeroQuote);
     el.shareBtn.addEventListener('click', shareQuote);
     el.speakBtn.addEventListener('click', speakQuote);
 
-    // 7. Browse toggle
+    // 8. Browse toggle
     el.toggleBrowseBtn.addEventListener('click', toggleBrowse);
 
-    // 8. Keyboard navigation: Space or R rolls random quote
+    // 9. Shortcuts Dialog
+    if (el.openShortcutsBtn) {
+      el.openShortcutsBtn.addEventListener('click', toggleShortcutsModal);
+    }
+    if (el.closeShortcutsBtn) {
+      el.closeShortcutsBtn.addEventListener('click', () => el.shortcutsModal.close());
+    }
+    if (el.dialogGotItBtn) {
+      el.dialogGotItBtn.addEventListener('click', () => el.shortcutsModal.close());
+    }
+    if (el.shortcutsModal) {
+      el.shortcutsModal.addEventListener('click', (e) => {
+        // Light dismiss if clicked outside dialog content
+        if (e.target === el.shortcutsModal) {
+          el.shortcutsModal.close();
+        }
+      });
+    }
+
+    // 10. Comprehensive Keyboard Shortcuts
     window.addEventListener('keydown', (e) => {
       const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
-      if (['input', 'select', 'textarea'].includes(activeTag)) return;
+      const isInputActive = ['input', 'select', 'textarea'].includes(activeTag);
+
+      // '?' opens shortcuts dialog even if not in input
+      if (e.key === '?' && !isInputActive) {
+        e.preventDefault();
+        toggleShortcutsModal();
+        return;
+      }
+
+      // '/' focuses search input
+      if (e.key === '/' && !isInputActive) {
+        e.preventDefault();
+        el.keywordInput.focus();
+        return;
+      }
+
+      if (isInputActive) return;
 
       if (e.code === 'Space' || e.key === 'r' || e.key === 'R') {
         if (e.code === 'Space') e.preventDefault();
         getRandomQuote();
+      } else if (e.key === 'p' || e.key === 'P') {
+        goPrevQuote();
+      } else if (e.key === 'c' || e.key === 'C') {
+        copyHeroQuote();
+      } else if (e.key === 'f' || e.key === 'F') {
+        toggleCurrentFavorite();
+      } else if (e.key === 'l' || e.key === 'L') {
+        speakQuote();
       }
     });
   }

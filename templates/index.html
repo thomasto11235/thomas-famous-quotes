@@ -33,6 +33,10 @@
             <span class="stat-dot"></span>
             <span id="stats-text">Loading 100 quotes...</span>
           </div>
+          <button type="button" id="open-shortcuts-btn" class="shortcuts-pill-btn" title="Keyboard Shortcuts (?)" aria-label="Keyboard Shortcuts">
+            <kbd class="shortcut-pill-kbd">?</kbd>
+            <span class="shortcut-pill-label">Shortcuts</span>
+          </button>
           <div class="theme-switch-container">
             <span class="theme-icon sun" aria-hidden="true" title="Light Theme">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -135,6 +139,9 @@
             <span class="chips-label">Quick Filter:</span>
             <div class="chips-scroll" id="category-chips" role="group" aria-label="Category buttons">
               <button type="button" class="chip active" data-category="">All</button>
+              <button type="button" class="chip chip-fav" id="favorites-chip" data-category="favorites">
+                ❤️ Favorites <span class="fav-count-badge" id="fav-count-badge">(0)</span>
+              </button>
               <!-- Populated by JavaScript -->
             </div>
           </div>
@@ -171,7 +178,7 @@
       <article class="quote-card" id="quote-card" tabindex="0" aria-labelledby="quote-text" aria-describedby="quote-author">
         <div class="quote-card-header">
           <span class="quote-number-badge" id="quote-number">Quote #—</span>
-          <span class="quote-category-badge" id="quote-category">General</span>
+          <button type="button" class="quote-category-badge clickable-badge" id="quote-category" title="Filter by this category">General</button>
         </div>
 
         <div class="quote-body" id="quote-announcer" aria-live="polite" aria-atomic="true">
@@ -184,14 +191,25 @@
 
         <div class="quote-footer">
           <div class="author-info">
-            <div class="author-avatar" id="author-avatar" aria-hidden="true">Q</div>
+            <button type="button" class="author-avatar-btn" id="author-avatar-btn" title="Filter by this author" aria-label="Filter by author">
+              <span class="author-avatar" id="author-avatar" aria-hidden="true">Q</span>
+            </button>
             <div class="author-meta">
-              <cite class="quote-author" id="quote-author">—</cite>
+              <button type="button" class="author-name-btn" id="author-name-btn" title="Filter by this author">
+                <cite class="quote-author" id="quote-author">—</cite>
+              </button>
               <span class="quote-context" id="quote-context">Famous Figure</span>
             </div>
           </div>
 
           <div class="quote-actions" role="toolbar" aria-label="Quote actions">
+            <button type="button" id="favorite-btn" class="action-btn fav-btn" title="Save quote to favorites (F)" aria-label="Favorite quote">
+              <svg class="heart-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+              </svg>
+              <span class="btn-text" id="favorite-text">Favorite</span>
+            </button>
+
             <button type="button" id="speak-btn" class="action-btn" title="Read quote aloud (Text to Speech)" aria-label="Read quote aloud">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
@@ -201,7 +219,7 @@
               <span class="btn-text">Listen</span>
             </button>
 
-            <button type="button" id="copy-btn" class="action-btn" title="Copy quote to clipboard" aria-label="Copy quote to clipboard">
+            <button type="button" id="copy-btn" class="action-btn" title="Copy quote to clipboard (C)" aria-label="Copy quote to clipboard">
               <svg class="copy-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -222,8 +240,15 @@
         </div>
       </article>
 
-      <!-- Primary Random Button -->
+      <!-- Primary Controls (Prev & Next) -->
       <div class="primary-controls">
+        <button type="button" id="prev-quote-btn" class="secondary-btn" title="Previous quote in session (P)" aria-label="Previous quote" disabled>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+          <span>Prev</span>
+        </button>
+
         <button type="button" id="random-quote-btn" class="primary-btn">
           <svg class="dice-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="16 3 21 3 21 8"></polyline>
@@ -259,10 +284,37 @@
         <strong>Echoes of Wisdom</strong> • Powered by Python Flask & Vanilla JavaScript.
       </p>
       <p class="keyboard-hint">
-        Tip: Press <kbd>Space</kbd> or <kbd>R</kbd> anywhere to get a new random quote.
+        Tip: Press <kbd>Space</kbd> or <kbd>R</kbd> for next quote, <kbd>P</kbd> for previous, or <kbd>?</kbd> for all shortcuts.
       </p>
     </footer>
   </div>
+
+  <!-- Accessible Keyboard Shortcuts Dialog -->
+  <dialog id="shortcuts-modal" class="shortcuts-dialog" aria-labelledby="dialog-title">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h2 id="dialog-title">Keyboard Shortcuts</h2>
+        <button type="button" id="close-shortcuts-btn" class="close-dialog-btn" aria-label="Close shortcuts dialog">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <table class="shortcuts-table">
+          <tbody>
+            <tr><td><kbd>Space</kbd> or <kbd>R</kbd></td><td>Next Random Quote</td></tr>
+            <tr><td><kbd>P</kbd></td><td>Previous Quote in History</td></tr>
+            <tr><td><kbd>C</kbd></td><td>Copy Current Quote to Clipboard</td></tr>
+            <tr><td><kbd>F</kbd></td><td>Add / Remove from Favorites</td></tr>
+            <tr><td><kbd>L</kbd></td><td>Listen (Text-to-Speech)</td></tr>
+            <tr><td><kbd>/</kbd></td><td>Focus Search Input</td></tr>
+            <tr><td><kbd>?</kbd></td><td>Open / Close this Shortcuts Guide</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Close Modals / Drawers</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="dialog-footer">
+        <button type="button" id="dialog-got-it-btn" class="action-btn">Got it</button>
+      </div>
+    </div>
+  </dialog>
 
   <script src="/static/js/app.js"></script>
 </body>
