@@ -1,7 +1,9 @@
+import csv
+import io
 import json
 import os
 import random
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 
 app = Flask(__name__)
 
@@ -85,6 +87,34 @@ def get_quotes():
         "offset": offset,
         "quotes": paginated
     })
+
+@app.route("/api/quotes/export", methods=["GET"])
+def export_quotes_csv():
+    category = request.args.get("category")
+    author = request.args.get("author")
+    search = request.args.get("search")
+
+    filtered = filter_quotes(ALL_QUOTES, category=category, author=author, search=search)
+
+    output = io.StringIO()
+    writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(["ID", "Quote", "Author", "Category"])
+    for q in filtered:
+        writer.writerow([q["id"], q["quote"], q["author"], q["category"]])
+
+    filename = "quotes.csv"
+    if category and category.strip():
+        clean_cat = "".join(c for c in category if c.isalnum() or c in ("-", "_")).lower()
+        filename = f"quotes_{clean_cat}.csv"
+    elif author and author.strip():
+        clean_auth = "".join(c for c in author if c.isalnum() or c in ("-", "_")).lower()
+        filename = f"quotes_{clean_auth}.csv"
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 @app.route("/api/categories", methods=["GET"])
 def get_categories():

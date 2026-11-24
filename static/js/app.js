@@ -6,6 +6,54 @@
 (() => {
   'use strict';
 
+  // --- Theme Variables Definition (CSS Root Variables) ---
+  const themeVariables = {
+    light: {
+      '--bg-gradient': 'linear-gradient(135deg, #f8fafc 0%, #edf2f7 50%, #e2e8f0 100%)',
+      '--bg-surface': '#ffffff',
+      '--bg-surface-elevated': '#ffffff',
+      '--bg-subtle': '#f1f5f9',
+      '--bg-input': '#ffffff',
+      '--border-color': '#e2e8f0',
+      '--border-focus': '#3b82f6',
+      '--text-primary': '#0f172a',
+      '--text-secondary': '#475569',
+      '--text-muted': '#64748b',
+      '--text-inverse': '#ffffff',
+      '--accent-primary': '#3b82f6',
+      '--accent-primary-hover': '#2563eb',
+      '--accent-gradient': 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+      '--accent-glow': 'rgba(59, 130, 246, 0.25)',
+      '--category-bg': '#eff6ff',
+      '--category-text': '#1d4ed8',
+      '--category-border': '#bfdbfe',
+      '--card-shadow': '0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04)',
+      '--card-hover-shadow': '0 20px 35px -5px rgba(15, 23, 42, 0.12), 0 10px 15px -6px rgba(15, 23, 42, 0.06)'
+    },
+    dark: {
+      '--bg-gradient': 'linear-gradient(135deg, #090d16 0%, #0f172a 50%, #172136 100%)',
+      '--bg-surface': '#131d31',
+      '--bg-surface-elevated': '#1a2640',
+      '--bg-subtle': '#1e293b',
+      '--bg-input': '#1e293b',
+      '--border-color': '#2e3d5b',
+      '--border-focus': '#60a5fa',
+      '--text-primary': '#f8fafc',
+      '--text-secondary': '#cbd5e1',
+      '--text-muted': '#94a3b8',
+      '--text-inverse': '#0f172a',
+      '--accent-primary': '#60a5fa',
+      '--accent-primary-hover': '#3b82f6',
+      '--accent-gradient': 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+      '--accent-glow': 'rgba(96, 165, 250, 0.25)',
+      '--category-bg': '#1e2e4e',
+      '--category-text': '#93c5fd',
+      '--category-border': '#2d4677',
+      '--card-shadow': '0 12px 30px -5px rgba(0, 0, 0, 0.45)',
+      '--card-hover-shadow': '0 22px 40px -5px rgba(0, 0, 0, 0.6)'
+    }
+  };
+
   // --- State ---
   const state = {
     currentQuote: null,
@@ -26,7 +74,7 @@
   const el = {
     // Header
     statsText: document.getElementById('stats-text'),
-    themeToggle: document.getElementById('theme-toggle'),
+    themeToggleSwitch: document.getElementById('theme-toggle-switch'),
 
     // Inputs & Filters
     authorInput: document.getElementById('author-input'),
@@ -37,6 +85,7 @@
     keywordInput: document.getElementById('keyword-input'),
     clearKeywordBtn: document.getElementById('clear-keyword-btn'),
     filterCountInfo: document.getElementById('filter-count-info'),
+    exportCsvBtn: document.getElementById('export-csv-btn'),
     resetFiltersBtn: document.getElementById('reset-filters-btn'),
 
     // Hero Quote Card
@@ -65,21 +114,58 @@
     browseGrid: document.getElementById('browse-grid')
   };
 
-  // --- Theme Management ---
+  // --- Theme Management: Override CSS Root Variables ---
+  function applyTheme(themeMode) {
+    const isDark = (themeMode === 'dark');
+    const targetVars = isDark ? themeVariables.dark : themeVariables.light;
+    const rootStyle = document.documentElement.style;
+
+    // Overriding CSS root variables directly on :root / documentElement
+    for (const [property, value] of Object.entries(targetVars)) {
+      rootStyle.setProperty(property, value);
+    }
+
+    document.documentElement.setAttribute('data-theme', themeMode);
+
+    const metaColorScheme = document.querySelector('meta[name="color-scheme"]');
+    if (metaColorScheme) {
+      metaColorScheme.setAttribute('content', themeMode);
+    }
+
+    localStorage.setItem('quote_theme', themeMode);
+
+    if (el.themeToggleSwitch) {
+      el.themeToggleSwitch.checked = isDark;
+    }
+  }
+
   function initTheme() {
-    const savedTheme = localStorage.getItem('quote_theme') || 'system';
-    document.documentElement.setAttribute('data-theme', savedTheme);
+    const savedTheme = localStorage.getItem('quote_theme');
+    let effectiveTheme = 'light';
 
-    el.themeToggle.addEventListener('click', () => {
-      const current = document.documentElement.getAttribute('data-theme');
-      let nextTheme = 'light';
-      if (current === 'light') nextTheme = 'dark';
-      else if (current === 'dark') nextTheme = 'system';
-      else nextTheme = 'light';
+    if (savedTheme === 'dark' || savedTheme === 'light') {
+      effectiveTheme = savedTheme;
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      effectiveTheme = 'dark';
+    }
 
-      document.documentElement.setAttribute('data-theme', nextTheme);
-      localStorage.setItem('quote_theme', nextTheme);
-    });
+    applyTheme(effectiveTheme);
+
+    if (el.themeToggleSwitch) {
+      el.themeToggleSwitch.addEventListener('change', (e) => {
+        const nextTheme = e.target.checked ? 'dark' : 'light';
+        applyTheme(nextTheme);
+      });
+    }
+
+    // Handle OS preference changes if user hasn't explicitly set a preference
+    if (window.matchMedia) {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+        if (!localStorage.getItem('quote_theme')) {
+          applyTheme(e.matches ? 'dark' : 'light');
+        }
+      });
+    }
   }
 
   // --- API Helpers ---
@@ -196,7 +282,6 @@
   }
 
   function displayQuote(quote) {
-    // Fade out
     el.quoteText.classList.add('fade-out');
 
     setTimeout(() => {
@@ -206,7 +291,6 @@
       el.quoteAuthor.textContent = quote.author;
       el.quoteContext.textContent = `${quote.category} Perspective`;
 
-      // Avatar initials
       const initials = quote.author
         .split(' ')
         .filter(n => n.length > 0)
@@ -215,7 +299,6 @@
         .join('');
       el.authorAvatar.textContent = initials || 'Q';
 
-      // Fade in
       el.quoteText.classList.remove('fade-out');
       el.quoteText.classList.add('fade-in');
 
@@ -239,7 +322,6 @@
     state.filters.category = categoryName;
     el.categorySelect.value = categoryName;
 
-    // Update chips active state
     const chips = el.categoryChips.querySelectorAll('.chip');
     chips.forEach(chip => {
       if (chip.dataset.category === categoryName) {
@@ -311,7 +393,7 @@
     getRandomQuote();
   }
 
-  // --- Browse All Matching Quotes ---
+  // --- Browse All Matching Quotes (With Copy Button on Each Quote) ---
   async function loadBrowseQuotes() {
     const params = new URLSearchParams();
     if (state.filters.category) params.set('category', state.filters.category);
@@ -329,22 +411,72 @@
         if (state.currentQuote && state.currentQuote.id === q.id) {
           item.classList.add('active');
         }
+
+        // Inner HTML: Text, Author, Category
         item.innerHTML = `
           <p class="mini-quote-text">"${escapeHTML(q.quote)}"</p>
           <div class="mini-quote-footer">
-            <span class="mini-quote-author">${escapeHTML(q.author)}</span>
-            <span class="mini-quote-tag">${escapeHTML(q.category)}</span>
+            <span class="mini-quote-author" title="${escapeHTML(q.author)}">${escapeHTML(q.author)}</span>
+            <div class="mini-quote-actions">
+              <span class="mini-quote-tag">${escapeHTML(q.category)}</span>
+            </div>
           </div>
         `;
+
+        // "Copy to Clipboard" button on EACH quote in the grid
+        const miniCopyBtn = document.createElement('button');
+        miniCopyBtn.type = 'button';
+        miniCopyBtn.className = 'mini-copy-btn';
+        miniCopyBtn.title = 'Copy quote to clipboard';
+        miniCopyBtn.setAttribute('aria-label', `Copy quote by ${q.author}`);
+        miniCopyBtn.innerHTML = `
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          <span class="mini-copy-text">Copy</span>
+        `;
+
+        miniCopyBtn.addEventListener('click', async (e) => {
+          e.stopPropagation(); // Don't trigger the card selection
+          const textToCopy = `"${q.quote}" — ${q.author}`;
+          await copyTextToClipboard(textToCopy);
+
+          miniCopyBtn.classList.add('copied');
+          miniCopyBtn.innerHTML = `
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            <span class="mini-copy-text">Copied!</span>
+          `;
+
+          setTimeout(() => {
+            miniCopyBtn.classList.remove('copied');
+            miniCopyBtn.innerHTML = `
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span class="mini-copy-text">Copy</span>
+            `;
+          }, 2000);
+        });
+
+        // Append copy button into mini-quote-actions
+        const actionsContainer = item.querySelector('.mini-quote-actions');
+        if (actionsContainer) {
+          actionsContainer.appendChild(miniCopyBtn);
+        }
+
+        // Clicking card selects quote as hero quote
         item.addEventListener('click', () => {
           state.currentQuote = q;
           displayQuote(q);
-          // Highlight active mini card
           el.browseGrid.querySelectorAll('.mini-quote-card').forEach(c => c.classList.remove('active'));
           item.classList.add('active');
-          // Scroll up to quote card smoothly
           el.quoteCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
         });
+
         el.browseGrid.appendChild(item);
       });
     } else {
@@ -362,11 +494,8 @@
     }
   }
 
-  // --- Quote Actions ---
-  async function copyQuoteToClipboard() {
-    if (!state.currentQuote) return;
-    const textToCopy = `"${state.currentQuote.quote}" — ${state.currentQuote.author}`;
-
+  // --- Copy to Clipboard Utility ---
+  async function copyTextToClipboard(textToCopy) {
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(textToCopy);
@@ -378,8 +507,19 @@
         document.execCommand('copy');
         document.body.removeChild(textarea);
       }
+      return true;
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      return false;
+    }
+  }
 
-      // Visual feedback
+  async function copyHeroQuote() {
+    if (!state.currentQuote) return;
+    const textToCopy = `"${state.currentQuote.quote}" — ${state.currentQuote.author}`;
+    const success = await copyTextToClipboard(textToCopy);
+
+    if (success) {
       el.copyBtn.classList.add('copied');
       el.copyIcon.classList.add('hidden');
       el.checkIcon.classList.remove('hidden');
@@ -391,9 +531,34 @@
         el.checkIcon.classList.add('hidden');
         el.copyText.textContent = 'Copy';
       }, 2000);
-    } catch (err) {
-      console.error('Failed to copy to clipboard:', err);
     }
+  }
+
+  // --- Export to CSV Utility ---
+  function exportQuotesToCSV() {
+    el.exportCsvBtn.classList.add('downloading');
+    const originalText = el.exportCsvBtn.querySelector('span').textContent;
+    el.exportCsvBtn.querySelector('span').textContent = 'Exporting...';
+
+    const params = new URLSearchParams();
+    if (state.filters.category) params.set('category', state.filters.category);
+    if (state.filters.author) params.set('author', state.filters.author);
+    if (state.filters.keyword) params.set('search', state.filters.keyword);
+
+    const exportUrl = `/api/quotes/export?${params.toString()}`;
+
+    // Trigger download
+    const link = document.createElement('a');
+    link.href = exportUrl;
+    link.setAttribute('download', '');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    setTimeout(() => {
+      el.exportCsvBtn.classList.remove('downloading');
+      el.exportCsvBtn.querySelector('span').textContent = originalText;
+    }, 1000);
   }
 
   function shareQuote() {
@@ -414,7 +579,7 @@
       return;
     }
 
-    window.speechSynthesis.cancel(); // clear previous
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(
       `${state.currentQuote.quote}. By ${state.currentQuote.author}.`
     );
@@ -486,11 +651,14 @@
       onFilterChanged();
     });
 
-    // 5. Reset Filters
+    // 5. Export to CSV & Reset Filters
+    if (el.exportCsvBtn) {
+      el.exportCsvBtn.addEventListener('click', exportQuotesToCSV);
+    }
     el.resetFiltersBtn.addEventListener('click', resetAllFilters);
 
-    // 6. Action buttons
-    el.copyBtn.addEventListener('click', copyQuoteToClipboard);
+    // 6. Hero Quote Action buttons
+    el.copyBtn.addEventListener('click', copyHeroQuote);
     el.shareBtn.addEventListener('click', shareQuote);
     el.speakBtn.addEventListener('click', speakQuote);
 
@@ -503,7 +671,7 @@
       if (['input', 'select', 'textarea'].includes(activeTag)) return;
 
       if (e.code === 'Space' || e.key === 'r' || e.key === 'R') {
-        if (e.code === 'Space') e.preventDefault(); // prevent page scroll
+        if (e.code === 'Space') e.preventDefault();
         getRandomQuote();
       }
     });

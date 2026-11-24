@@ -121,3 +121,22 @@ def test_get_stats_endpoint(client):
     assert data["total_quotes"] == 100
     assert data["total_categories"] == 10
     assert data["total_authors"] > 50
+
+def test_export_csv_endpoint_all(client):
+    response = client.get("/api/quotes/export")
+    assert response.status_code == 200
+    assert response.mimetype == "text/csv"
+    assert "attachment; filename=quotes.csv" in response.headers.get("Content-Disposition", "")
+    lines = response.data.decode("utf-8").strip().splitlines()
+    assert len(lines) == 101  # header + 100 quotes
+    assert lines[0] == "ID,Quote,Author,Category"
+
+def test_export_csv_endpoint_filtered(client):
+    response = client.get("/api/quotes/export?category=Science")
+    assert response.status_code == 200
+    assert response.mimetype == "text/csv"
+    assert "quotes_science.csv" in response.headers.get("Content-Disposition", "")
+    lines = response.data.decode("utf-8").strip().splitlines()
+    assert len(lines) > 1
+    assert lines[0] == "ID,Quote,Author,Category"
+
